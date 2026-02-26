@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 
 
 public class MainServer {
-    private static final String SERVER_API_KEY = "anish_enc_api_key";
+    private static final String SERVER_API_KEY = loadAPIkey();
     public static void main(String[] args) {
 
         String portstr = System.getenv("PORT");
@@ -56,6 +56,15 @@ public class MainServer {
             System.err.println("[STARTUP ERROR] Failed to start server: " + e.getMessage());
         }
     }
+
+    private static String loadAPIkey(){
+        String apikey = System.getenv("API_KEY");
+        if(apikey == null || apikey.isBlank()){
+            throw new RuntimeException("[STARTUP ERROR] Environment variable API_KEY is not set");
+        }
+        return apikey;
+    }
+
     static class StatusCapture extends HttpExchange{
         private final HttpExchange original;
         private int status = 200;
