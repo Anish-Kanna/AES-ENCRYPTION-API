@@ -13,12 +13,18 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 
 public class MainServer {
     private static final String SERVER_API_KEY = loadAPIkey();
+    private static final ConcurrentHashMap<String, RequestWindow> RATE_LIMIT_MAP = new ConcurrentHashMap<>();
+
+    private static final int RATE_LIMIT_MAX = 20;
+    private static final long RATE_LIMIT_WINDOW_MS = 60_000;
+
     public static void main(String[] args) {
 
         String portstr = System.getenv("PORT");
@@ -39,8 +45,8 @@ public class MainServer {
             encryptHandler enchandler = new encryptHandler();
             decryptHandler dechandler = new decryptHandler();
             healthHandler healthandler = new healthHandler();
-            server.createContext("/api/v1/encrypt", new LoggingHandler(new APIHandler(enchandler)));
-            server.createContext("/api/v1/decrypt", new LoggingHandler(new APIHandler(dechandler)));
+            server.createContext("/api/v1/encrypt", new LoggingHandler(new RateLimitHandler(new APIHandler(enchandler))));
+            server.createContext("/api/v1/decrypt", new LoggingHandler(new RateLimitHandler(new APIHandler(dechandler))));
             server.createContext("/api/v1/health", new LoggingHandler(healthandler));
             server.start();
             System.out.println("Server Started on " + port + "...");
@@ -55,6 +61,16 @@ public class MainServer {
         }catch (IOException e){
             System.err.println("[STARTUP ERROR] Failed to start server: " + e.getMessage());
         }
+    }
+
+    static class RequestWindow {
+        int requestCount;
+        long windowStartMillis;
+
+//        RequestWindow(int requestCount, long windowLongMillis) {
+//            this.requestCount = requestCount;
+//            this.windowLongMillis = windowLongMillis;
+//        }
     }
 
     private static String loadAPIkey(){
@@ -162,6 +178,7 @@ public class MainServer {
         }
     }
 
+
     static class LoggingHandler implements HttpHandler {
         private final HttpHandler next;
 
@@ -204,6 +221,51 @@ public class MainServer {
         }
     }
 
+    static class RateLimitHandler implements HttpHandler {
+        private final HttpHandler next;
+
+        RateLimitHandler(HttpHandler next) {
+            this.next = next;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String ip = exchange.getRemoteAddress().getAddress().getHostAddress();
+            long now = System.currentTimeMillis();
+            RequestWindow window = RATE_LIMIT_MAP.get(ip);
+
+            if(window == null){
+                RequestWindow newWindow = new RequestWindow();
+                newWindow.requestCount = 1;
+                newWindow.windowStartMillis = now;
+
+                RATE_LIMIT_MAP.put(ip, newWindow);
+
+                next.handle(exchange);
+                return;
+            }
+
+            if(now - window.windowStartMillis > RATE_LIMIT_WINDOW_MS){
+                window.requestCount = 1;
+                window.windowStartMillis = now;
+                next.handle(exchange);
+                return;
+            }
+
+            window.requestCount++;
+            if(window.requestCount > RATE_LIMIT_MAX){
+                String response = "Too Many Requests";
+                exchange.getResponseHeaders().set("Content-Type", "text/plain");
+                exchange.sendResponseHeaders(429, response.getBytes(StandardCharsets.UTF_8).length);
+
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response.getBytes(StandardCharsets.UTF_8));
+                }
+                return;
+            }
+            next.handle(exchange);
+        }
+    }
 
     static class APIHandler implements HttpHandler{
         private final HttpHandler next;
