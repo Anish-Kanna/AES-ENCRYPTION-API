@@ -17,6 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import java.time.Instant;
+import java.util.Map;
+
 
 public class MainServer {
     private static final String SERVER_API_KEY = loadAPIkey();
@@ -194,7 +197,15 @@ public class MainServer {
             try {
                 next.handle(wrapped);
             }catch (Exception e) {
-                System.err.printf("[ERROR] %s %s - %s%n", exchange.getRequestMethod(), exchange.getRequestURI().getPath(), e.getClass().getSimpleName());
+                String errorLog = String.format(
+                        "{\"level\":\"ERROR\",\"timestamp\":\"%s\",\"method\":\"%s\",\"path\":\"%s\",\"error\":\"%s\"}",
+                        Instant.now().toString(),
+                        exchange.getRequestMethod(),
+                        exchange.getRequestURI().getPath(),
+                        e.getClass().getSimpleName()
+                );
+
+                System.err.println(errorLog);
 
                 if (wrapped.getStatus() == 200) {
                     String response = "Internal server error";
@@ -216,7 +227,17 @@ public class MainServer {
 
                 int status = wrapped.getStatus();
 
-                System.out.printf("[INFO] %s %s %s %d %dms%n", ip, method, path, status, duration);
+                String log = String.format(
+                        "{\"level\":\"INFO\",\"timestamp\":\"%s\",\"ip\":\"%s\",\"method\":\"%s\",\"path\":\"%s\",\"status\":%d,\"duration_ms\":%d}",
+                        Instant.now().toString(),
+                        ip,
+                        method,
+                        path,
+                        status,
+                        duration
+                );
+
+                System.out.println(log);
             }
         }
     }
@@ -232,6 +253,14 @@ public class MainServer {
         public void handle(HttpExchange exchange) throws IOException {
             String ip = exchange.getRemoteAddress().getAddress().getHostAddress();
             long now = System.currentTimeMillis();
+
+            for (Map.Entry<String, RequestWindow> entry : RATE_LIMIT_MAP.entrySet()) {
+                RequestWindow w = entry.getValue();
+                if (now - w.windowStartMillis > RATE_LIMIT_WINDOW_MS) {
+                    RATE_LIMIT_MAP.remove(entry.getKey());
+                }
+            }
+
             RequestWindow window = RATE_LIMIT_MAP.get(ip);
 
             if(window == null){
