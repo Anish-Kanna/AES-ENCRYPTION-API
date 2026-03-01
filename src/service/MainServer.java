@@ -39,9 +39,9 @@ public class MainServer {
             encryptHandler enchandler = new encryptHandler();
             decryptHandler dechandler = new decryptHandler();
             healthHandler healthandler = new healthHandler();
-            server.createContext("/encrypt", new LoggingHandler(new APIHandler(enchandler)));
-            server.createContext("/decrypt", new LoggingHandler(new APIHandler(dechandler)));
-            server.createContext("/health", new LoggingHandler(healthandler));
+            server.createContext("/api/v1/encrypt", new LoggingHandler(new APIHandler(enchandler)));
+            server.createContext("/api/v1/decrypt", new LoggingHandler(new APIHandler(dechandler)));
+            server.createContext("/api/v1/health", new LoggingHandler(healthandler));
             server.start();
             System.out.println("Server Started on " + port + "...");
 
